@@ -1,41 +1,107 @@
+import org.moallemi.gradle.internal.VersionCodeType
+
 apply plugin: 'com.android.application'
 apply plugin: 'realm-android'
+apply plugin: 'com.github.triplet.play'
+apply plugin: 'org.moallemi.advanced-build-version'
+advancedVersioning {
+    nameOptions {
+        versionMajor 2
+        versionMinor 1
+        versionPatch 1
+    }
+    codeOptions {
+        versionCodeType VersionCodeType.AUTO_INCREMENT_DATE
+        dependsOnTasks 'release' // defaultValue
+    }
+    outputOptions {
+        renameOutput true
+        nameFormat '${appName}-${buildType}-${versionName}'
+    }
+}
 android {
-    compileSdkVersion 26
-    buildToolsVersion '26.0.2'
+    compileSdkVersion 27
+    buildToolsVersion '27.0.3'
     defaultConfig {
         applicationId "com.codingblocks.chatter"
         minSdkVersion 15
-        targetSdkVersion 25
-        versionCode 1
-        versionName "1.0"
+        targetSdkVersion 27
+        versionCode advancedVersioning.versionCode
+        versionName advancedVersioning.versionName
         testInstrumentationRunner "android.support.test.runner.AndroidJUnitRunner"
+        vectorDrawables.useSupportLibrary = true
+    }
+    signingConfigs {
+        release {
+        }
     }
     buildTypes {
-        release {
+        debug {
+            testCoverageEnabled true
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
     }
+    lintOptions {
+        abortOnError false
+    }
+}
+ext {
+    supportLibVersion = '27.1.1'
 }
 
 dependencies {
     implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "com.android.support.constraint:constraint-layout:1.1.2"
+    implementation "com.android.support:support-v4:$supportLibVersion"
+    implementation "com.android.support:support-vector-drawable:$supportLibVersion"
+    implementation "com.android.support:exifinterface:$supportLibVersion"
+    implementation "com.android.support:appcompat-v7:$supportLibVersion"
+    // Design Support Library
+    implementation "com.android.support:design:$supportLibVersion"
+    // Recycler View Support Library
+    implementation "com.android.support:recyclerview-v7:$supportLibVersion"
+    // Card View Support Library
+    implementation "com.android.support:cardview-v7:$supportLibVersion"
+    // OkHTTP
+    implementation 'com.squareup.okhttp3:okhttp:3.10.0'
+    // Butterknife
+    implementation 'com.jakewharton:butterknife:8.8.1'
+    //Picasso for image loading
+    implementation 'com.squareup.picasso:picasso:2.71828'
+    // Room
+    implementation "android.arch.persistence.room:runtime:1.1.1"
+    annotationProcessor "android.arch.persistence.room:compiler:1.1.1"
+    // GSON
+    implementation "com.google.code.gson:gson:2.8.2"
+    // Annotations
+    annotationProcessor 'com.jakewharton:butterknife-compiler:8.8.1'
+
     androidTestImplementation('com.android.support.test.espresso:espresso-core:2.2.2', {
         exclude group: 'com.android.support', module: 'support-annotations'
     })
-    implementation 'com.android.support:appcompat-v7:25.4.0'
     testImplementation 'junit:junit:4.12'
-    // Design Support Library
-    implementation 'com.android.support:design:25.4.0'
-    // Recycler View Support Library
-    implementation 'com.android.support:recyclerview-v7:25.4.0'
-    // Card View Support Library
-    implementation 'com.android.support:cardview-v7:25.4.0'
-    // OkHTTP
-    implementation 'com.squareup.okhttp3:okhttp:3.8.1'
-    // Butterknife
-    implementation 'com.jakewharton:butterknife:8.7.0'
-    annotationProcessor 'com.jakewharton:butterknife-compiler:8.7.0'
-    implementation 'com.android.support:support-v4:25.4.0'
+}
+
+play {
+    //track can be set to production,alpha or beta
+    jsonFile = file('../keys/api-keys.json')
+    track = 'production'
+}
+
+def props = new Properties()
+
+if (System.getenv('CI') != 'true') {
+    props.load(new FileInputStream(rootProject.file("keys/release.properties")))
+
+    android.signingConfigs.release.storeFile rootProject.file(props.keyStore)
+    android.signingConfigs.release.storePassword props.keyStorePassword
+    android.signingConfigs.release.keyAlias props.keyAlias
+    android.signingConfigs.release.keyPassword props.keyAliasPassword
+
 }

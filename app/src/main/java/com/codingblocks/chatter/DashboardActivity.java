@@ -1,24 +1,44 @@
 package com.codingblocks.chatter;
 
-import android.app.NotificationManager;
+import android.annotation.SuppressLint;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
+import android.os.AsyncTask;
 import android.os.Bundle;
 import android.support.annotation.NonNull;
-import android.support.design.widget.BottomNavigationView;
-import android.support.v7.app.AppCompatActivity;
+import android.support.design.widget.NavigationView;
 import android.support.v4.app.FragmentTransaction;
+import android.support.v4.view.GravityCompat;
+import android.support.v4.widget.DrawerLayout;
+import android.support.v7.app.ActionBarDrawerToggle;
+import android.support.v7.app.AlertDialog;
+import android.support.v7.app.AppCompatActivity;
+import android.support.v7.widget.Toolbar;
+import android.util.Log;
+import android.view.Menu;
 import android.view.MenuItem;
+import android.view.SubMenu;
+import android.view.View;
+import android.widget.ImageView;
+import android.widget.TextView;
 
+import com.codingblocks.chatter.db.RoomsTable;
+import com.codingblocks.chatter.fragments.RoomsFragment;
+import com.codingblocks.chatter.models.RoomsDao;
+import com.squareup.picasso.Picasso;
+
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 
-import butterknife.BindView;
 import butterknife.ButterKnife;
 import okhttp3.Call;
 import okhttp3.Callback;
@@ -26,44 +46,77 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 
-public class DashboardActivity extends AppCompatActivity {
+public class DashboardActivity extends AppCompatActivity implements NavigationView.OnNavigationItemSelectedListener {
 
-    @BindView(R.id.nav_view) BottomNavigationView bottomNavigationView;
 
     OkHttpClient client = new OkHttpClient();
+    SharedPreferences sharedPreferences;
+    //Database
+    RoomsDatabase roomdb;
+    MessagesDatabase messagesDatabase;
+    RoomsDao dao;
 
-    public int savedMenuItemId;
+    private View navHeader;
+    private ImageView imgNavHeaderBg, imgProfile;
+    private TextView txtName, txtDisplayName;
+    String username, accessToken, idOfUser, displayName, userUrl, avatarUrl;
+    NavigationView navigationView;
+    Menu navMenu;
+    List<RoomsTable> suggested = new ArrayList<>();
+    List<RoomsTable> favourite = new ArrayList<>();
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_dashboard);
         ButterKnife.bind(this);
+        Toolbar toolbar = findViewById(R.id.toolbar);
+        setSupportActionBar(toolbar);
+        DrawerLayout drawer = findViewById(R.id.drawer_layout);
+        ActionBarDrawerToggle toggle = new ActionBarDrawerToggle(
+                this, drawer, toolbar, R.string.app_name, R.string.app_name);
+        drawer.addDrawerListener(toggle);
+        toggle.syncState();
+        navigationView = findViewById(R.id.nav_view);
+        navMenu = navigationView.getMenu();
+
+        navigationView.setNavigationItemSelectedListener(this);
+        // Navigation view header
+        navHeader = navigationView.getHeaderView(0);
+        txtName = navHeader.findViewById(R.id.name);
+        txtDisplayName = navHeader.findViewById(R.id.displayName);
+        imgNavHeaderBg = navHeader.findViewById(R.id.img_header_bg);
+        imgProfile = navHeader.findViewById(R.id.img_profile);
+        //for deleting db on SignOut
+        roomdb = RoomsDatabase.getInstance(this);
+        dao = roomdb.roomsDao();
+        messagesDatabase = MessagesDatabase.getInstance(this);
 
         /* Some usefull things */
-        final SharedPreferences sharedPreferences =
+        sharedPreferences =
                 this.getSharedPreferences("UserPreferences", 0);
 
         /* Useful data from Shared Preferences */
-        String accessToken = sharedPreferences.getString("accessToken", "");
-        String username = sharedPreferences.getString("username", "");
-        String idOfUser = sharedPreferences.getString("idOfUser", "");
-        String displayName = sharedPreferences.getString("displayName", "");
-        String userUrl = sharedPreferences.getString("userUrl", "");
-        String avatarUrl = sharedPreferences.getString("avatarUrl", "");
+        accessToken = sharedPreferences.getString("accessToken", "");
+        username = sharedPreferences.getString("username", "");
+        idOfUser = sharedPreferences.getString("idOfUser", "");
+        displayName = sharedPreferences.getString("displayName", "");
+        userUrl = sharedPreferences.getString("userUrl", "");
+        avatarUrl = sharedPreferences.getString("avatarUrl", "");
 
         /* Get the data from the Gitter API if they are not avaiable if
            internet is also not available redirect to NoNetwirk Activity */
-        if(username.equals("") ||
+        if (username.equals("") ||
                 idOfUser.equals("") ||
                 displayName.equals("") ||
                 userUrl.equals("") ||
                 avatarUrl.equals("")) {
-            if(isNetworkAvailable()){
+            if (isNetworkAvailable()) {
                 Request request = new Request.Builder()
-                        .url("https://gitter.im/v1/user/me")
+                        .url("https://api.gitter.im/v1/user")
                         .addHeader("Accept", "application/json")
-                        .addHeader("Authorization:", "Bearer " + accessToken)
+                        .addHeader("Authorization", "Bearer " + accessToken)
                         .build();
 
                 client.newCall(request).enqueue(new Callback() {
@@ -76,7 +129,10 @@ public class DashboardActivity extends AppCompatActivity {
                     public void onResponse(@NonNull Call call, @NonNull Response response) throws IOException {
                         try {
                             String responseText = response.body().string();
-                            JSONObject Jobject = new JSONObject(responseText);
+                            Log.i("TAG", "onResponseofUser: " + responseText);
+                            JSONArray jsonarray = new JSONArray(responseText);
+                            JSONObject Jobject = jsonarray.getJSONObject(0);
+
                             final String username = Jobject.getString("username");
                             final String idOfUser = Jobject.getString("id");
                             final String displayName = Jobject.getString("displayName");
@@ -92,8 +148,12 @@ public class DashboardActivity extends AppCompatActivity {
                                             .putString("userUrl", userUrl)
                                             .putString("avatarUrl", avatarUrl)
                                             .apply();
+                                    txtName.setText(username);
+                                    txtDisplayName.setText(displayName);
+                                    Picasso.get().load(avatarUrl).into(imgProfile);
                                 }
                             });
+
                         } catch (IOException e) {
                             e.printStackTrace();
                         } catch (JSONException e) {
@@ -109,45 +169,112 @@ public class DashboardActivity extends AppCompatActivity {
                 DashboardActivity.this.startActivity(intent);
                 DashboardActivity.this.finish();
             }
-        }
-
-        if(savedInstanceState == null){
-            savedMenuItemId = bottomNavigationView.getMenu().getItem(0).getItemId();
         } else {
-            savedMenuItemId = savedInstanceState.getInt("arg_last_menu_item_id");
+            txtName.setText(username);
+            txtDisplayName.setText(displayName);
+            Picasso.get().load(avatarUrl).into(imgProfile);
         }
-        selectFragment(savedMenuItemId);
+        FragmentTransaction transaction = getSupportFragmentManager().beginTransaction();
+        RoomsFragment roomsFragment = new RoomsFragment();
+        transaction.replace(R.id.fragment_holder, RoomsFragment.newInstance("All"), "Room");
+        transaction.commit();
+        getSuggestedRooms();
+        getfavourites();
 
-        bottomNavigationView.setOnNavigationItemSelectedListener(new BottomNavigationView.OnNavigationItemSelectedListener() {
-            @Override
-            public boolean onNavigationItemSelected(@NonNull MenuItem menuItem) {
-                selectFragment(menuItem.getItemId());
-                return true;
-            }
-        });
-        NotificationManager nManager = (NotificationManager)
-                this.getSystemService(Context.NOTIFICATION_SERVICE);
-        if (nManager != null) {
-            nManager.cancel(1234567890);
-        }
     }
 
-    public void selectFragment(int id){
-        FragmentTransaction transaction = getSupportFragmentManager().beginTransaction();
-        switch(id) {
-            case R.id.action_dashboard:
-                transaction.replace(R.id.fragment_holder, new DashboardFragment());
-                break;
-            case R.id.action_rooms:
-                transaction.replace(R.id.fragment_holder, new RoomsFragment());
-                break;
-            case R.id.action_settings:
-                transaction.replace(R.id.fragment_holder, new SettingsFragment());
-                break;
+    @SuppressLint("StaticFieldLeak")
+    private void getfavourites() {
+        new AsyncTask<Void, Void, List<RoomsTable>>() {
+            @Override
+            protected List<RoomsTable> doInBackground(Void... voids) {
+                return dao.getAllRooms();
+            }
+
+            @Override
+            protected void onPostExecute(List<RoomsTable> roomsTables) {
+                super.onPostExecute(roomsTables);
+                for (RoomsTable r : roomsTables) {
+                    if (r.getFavourite() != null)
+                        favourite.add(r);
+                }
+                if (favourite.size() > 0) {
+                    SubMenu topChannelMenu = navMenu.addSubMenu("Favourites");
+                    for (int i = 0; i < favourite.size(); i++) {
+                        topChannelMenu.add(Menu.NONE, i + 6, Menu.NONE, favourite.get(i).getRoomName());
+                    }
+                }
+            }
+        }.execute();
+
+
+    }
+
+    private void getSuggestedRooms() {
+        if (isNetworkAvailable()) {
+            Request request = new Request.Builder()
+                    .url("https://api.gitter.im/v1/"
+                            + "user/"
+                            + idOfUser +
+                            "/suggestedRooms"
+                    )
+                    .addHeader("Accept", "application/json")
+                    .addHeader("Authorization", "Bearer " + accessToken)
+                    .build();
+            client.newCall(request).enqueue(new Callback() {
+                @Override
+                public void onFailure(Call call, IOException e) {
+
+                }
+
+                @Override
+                public void onResponse(Call call, Response response) throws IOException {
+                    final String responseText = "{\"rooms\":" + response.body().string() + "}";
+
+                    try {
+                        JSONObject JObject = new JSONObject(responseText);
+                        JSONArray JArray = JObject.getJSONArray("rooms");
+                        int i;
+                        for (i = 0; i < JArray.length(); i++) {
+                            JSONObject dynamicJObject = JArray.getJSONObject(i);
+                            String githubType = dynamicJObject.getString("githubType");
+                            final String uId = dynamicJObject.getString("id");
+                            String name = dynamicJObject.getString("name");
+                            int userCount = 0;
+                            if (!githubType.equals("ONETWOONE")) {
+                                userCount = dynamicJObject.getInt("userCount");
+                            }
+
+                            String favourite = null;
+                            if (!dynamicJObject.isNull("favourite"))
+                                favourite = (dynamicJObject.getString("favourite"));
+                            final RoomsTable room = new RoomsTable();
+                            room.setuId(uId);
+                            room.setRoomName(name);
+                            room.setUserCount(userCount);
+                            room.setFavourite(favourite);
+                            suggested.add(room);
+                        }
+                    } catch (JSONException e) {
+                        e.printStackTrace();
+                    } finally {
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                SubMenu topChannelMenu = navMenu.addSubMenu("Suggested Rooms");
+                                for (int i = 1; i <= 5; i++) {
+                                    topChannelMenu.add(Menu.NONE, i, Menu.NONE, suggested.get(i).getRoomName());
+                                }
+
+                            }
+                        });
+
+                    }
+
+
+                }
+            });
         }
-        // Save the menu id and commit the transaction
-        savedMenuItemId = id;
-        transaction.commit();
     }
 
     public boolean isNetworkAvailable() {
@@ -157,14 +284,103 @@ public class DashboardActivity extends AppCompatActivity {
         return activeNetworkInfo != null && activeNetworkInfo.isConnected();
     }
 
-    public void openRoom(String id){
+    public void openRoom(String id, String roomName, int userCount, String favourtie, boolean roomMember) {
         Bundle bundle = new Bundle();
         bundle.putString("RoomId", id);
-        RoomFragment roomFragment = new RoomFragment();
-        roomFragment.setArguments(bundle);
-        getSupportFragmentManager()
-                .beginTransaction()
-                .replace(R.id.fragment_holder, roomFragment)
-                .commit();
+        bundle.putString("RoomName", roomName);
+        bundle.putInt("userCount", userCount);
+        bundle.putBoolean("roomMember", roomMember);
+        bundle.putString("favourite", favourtie);
+        Intent roomIntent = new Intent(DashboardActivity.this, RoomActivity.class);
+        roomIntent.putExtras(bundle);
+        startActivity(roomIntent);
+
+    }
+
+    private void signOut() {
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setMessage("Are you sure you want to Sign Out?")
+                .setCancelable(false)
+                .setPositiveButton("Yes", new DialogInterface.OnClickListener() {
+                    @SuppressLint("StaticFieldLeak")
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+
+                        new AsyncTask<Void, Void, Void>() {
+
+                            @Override
+                            protected Void doInBackground(Void... voids) {
+                                messagesDatabase.clearAllTables();
+                                roomdb.clearAllTables();
+                                return null;
+                            }
+
+                            @Override
+                            protected void onPostExecute(Void aVoid) {
+                                SharedPreferences.Editor editor = sharedPreferences.edit();
+                                editor.clear();
+                                editor.commit();
+                                Intent intent = new Intent(DashboardActivity.this, SplashActivity.class);
+                                startActivity(intent);
+                                finish();
+                            }
+                        }.execute();
+
+                    }
+                })
+                .setNegativeButton("Cancel", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        dialog.dismiss();
+                    }
+                })
+                .show();
+    }
+
+    @Override
+    public boolean onNavigationItemSelected(@NonNull MenuItem item) {
+        int id = item.getItemId();
+
+        if (id == R.id.nav_all_conv) {
+            changeFragment("all");
+        } else if (id == R.id.nav_people) {
+            changeFragment("oneToone");
+        } else if (id == R.id.nav_signOut)
+            signOut();
+        else if (id == R.id.nav_prefences)
+            startActivity(new Intent(DashboardActivity.this, SettingsActivity.class));
+        else if (id == 1 || id == 2 || id == 3 || id == 4 || id == 5) {
+            openRoom(suggested.get(id).getuId(),
+                    suggested.get(id).getRoomName(),
+                    suggested.get(id).getUserCount(),
+                    suggested.get(id).getFavourite(),
+                    false
+            );
+        } else if (id > 5 && id < favourite.size() + 6) {
+            openRoom(favourite.get(id - 6).getuId(),
+                    favourite.get(id - 6).getRoomName(),
+                    favourite.get(id - 6).getUserCount(),
+                    favourite.get(id - 6).getFavourite(),
+                    true);
+        }
+
+        return false;
+    }
+
+    @Override
+    public void onBackPressed() {
+        DrawerLayout drawer = findViewById(R.id.drawer_layout);
+        if (drawer.isDrawerOpen(GravityCompat.START)) {
+            drawer.closeDrawer(GravityCompat.START);
+        } else {
+            super.onBackPressed();
+        }
+    }
+
+    void changeFragment(String filter) {
+        FragmentTransaction transaction = getSupportFragmentManager().beginTransaction();
+        transaction.replace(R.id.fragment_holder, RoomsFragment.newInstance(filter), "Room");
+        transaction.commit();
+        onBackPressed();
     }
 }
